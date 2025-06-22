@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prediktor rojení mravenců</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #probability-circle {
+            transition: background-color 1.5s ease-in-out;
+            box-shadow: 
+                inset 0px 10px 20px rgba(255, 255, 255, 0.4),
+                inset 0px -10px 20px rgba(0, 0, 0, 0.2),
+                0px 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        .parameter-tile {
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .parameter-tile:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        /* Styly pro modální okno */
+        #modal-overlay {
+            transition: opacity 0.3s ease-in-out;
+            z-index: 50;
+        }
+        #modal-content {
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+        .modal-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .modal-hidden #modal-content {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-white text-gray-800 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div id="app-container" class="w-full max-w-md text-center">
+        <h1 class="text-3xl font-bold mb-2 text-gray-900">Rojení Mravenců</h1>
+        <p id="status-message" class="mb-6 text-gray-500 h-6">Získávám data o počasí...</p>
+
+        <!-- Kruh s mravencem -->
+        <div id="probability-circle" class="w-64 h-64 sm:w-72 sm:h-72 rounded-full mx-auto mb-8 flex items-center justify-center bg-gray-200">
+            <img id="ant-image" src="https://a-extermination.com/wp-content/uploads/2023/04/Exterminateur_de_fourmis_charpentin_res_Carpenter_Ant_Extermination.png" 
+                 alt="Obrázek mravence" 
+                 class="h-1/2 w-auto"
+                 onerror="this.onerror=null; this.src='https://placehold.co/256x256/ffffff/cccccc?text=Obr%C3%A1zek+nelze+nahr%C3%A1t';">
+        </div>
+
+        <!-- Parametry -->
+        <div id="parameters-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            <!-- Buňky parametrů se naplní pomocí JS -->
+        </div>
+         <button id="refresh-button" class="mt-8 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition-colors">
+            Aktualizovat
+        </button>
+    </div>
+    
+    <!-- Formulář pro ruční zadání polohy -->
+    <div id="manual-location" class="w-full max-w-md text-center mt-6 hidden">
+        <p id="manual-location-message" class="text-sm text-gray-600 mb-2">Zpráva o poloze</p>
+        <div class="flex gap-2">
+            <input type="text" id="city-input" placeholder="Např. Frýdlant nad Ostravicí" class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800">
+            <button id="manual-search-button" class="px-5 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700">Hledat</button>
+        </div>
+    </div>
+
+    <!-- Modální okno pro vysvětlení parametrů -->
+    <div id="modal-overlay" class="modal-hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div id="modal-content" class="bg-white rounded-lg shadow-2xl p-6 w-full max-w-sm">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="modal-title" class="text-xl font-bold">Název parametru</h2>
+                <button id="modal-close" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div id="modal-body" class="text-left space-y-4">
+                <!-- Obsah se vloží dynamicky -->
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Konfigurace a reference na elementy ---
+        const probabilityCircle = document.getElementById('probability-circle');
+        const parametersGrid = document.getElementById('parameters-grid');
+        const statusMessage = document.getElementById('status-message');
+        const refreshButton = document.getElementById('refresh-button');
+        const manualLocationSection = document.getElementById('manual-location');
+        const manualLocationMessage = document.getElementById('manual-location-message');
+        const manualSearchButton = document.getElementById('manual-search-button');
+        const cityInput = document.getElementById('city-input');
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const modalClose = document.getElementById('modal-close');
+
+        // Data pro modální okna
+        const explanations = {
+            location: {
+                title: 'Lokalita',
+                text: `<p><strong>Důležitost:</strong> Přesná poloha je klíčová pro získání relevantních a místních dat o počasí.</p><p><strong>Ideál:</strong> Aplikace používá data pro zobrazené město k co nejpřesnější předpovědi.</p>`
+            },
+            month: {
+                title: 'Měsíc',
+                text: `<p><strong>Důležitost:</strong> Rojení mravenců <em>Lasius niger</em> (Mravenec obecný) je silně vázáno na roční období. Děje se tak pouze v teplých letních měsících.</p><p><strong>Ideál:</strong> Hlavní sezóna je v červenci a srpnu. Okrajově se rojení může objevit i na konci června a začátkem září.</p>`
+            },
+            temp: {
+                title: 'Teplota',
+                text: `<p><strong>Důležitost:</strong> Mravenci jsou studenokrevní, takže pro let potřebují dostatek tepla z okolí, ale ne přílišné horko.</p><p><strong>Ideál:</strong> Optimální teplota pro vzlet se pohybuje mezi <strong>23°C a 30°C</strong>.</p>`
+            },
+            humidity: {
+                title: 'Vlhkost',
+                text: `<p><strong>Důležitost:</strong> Vyšší vlhkost vzduchu chrání jejich křídla před vyschnutím. Po dešti je navíc půda měkčí, což usnadňuje královnám vyhrabání nového hnízda.</p><p><strong>Ideál:</strong> Relativní vlhkost vzduchu nad <strong>65%</strong> je optimální.</p>`
+            },
+            wind: {
+                title: 'Vítr',
+                text: `<p><strong>Důležitost:</strong> Silný vítr by mravencům znemožnil kontrolu letu. Preferují proto klidné, bezvětrné dny.</p><p><strong>Ideál:</strong> Bezvětří nebo jen slabý vítr do <strong>10 km/h</strong>.</p>`
+            },
+            rain: {
+                title: 'Déšť včera',
+                text: `<p><strong>Důležitost:</strong> Déšť v předchozím dni je častým spouštěčem. Změkčí půdu, což je pro královny životně důležité pro rychlé založení hnízda.</p><p><strong>Ideál:</strong> Alespoň <strong>0.5 mm</strong> srážek den předem, přičemž den rojení by měl být suchý.</p>`
+            }
+        };
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', main);
+        refreshButton.addEventListener('click', main);
+        manualSearchButton.addEventListener('click', handleManualSearch);
+        cityInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') handleManualSearch(); });
+        parametersGrid.addEventListener('click', (event) => {
+            const tile = event.target.closest('.parameter-tile');
+            if (tile?.dataset.param && explanations[tile.dataset.param]) {
+                const { title, text } = explanations[tile.dataset.param];
+                modalTitle.textContent = title;
+                modalBody.innerHTML = text;
+                modalOverlay.classList.remove('modal-hidden');
+            }
+        });
+        modalClose.addEventListener('click', () => modalOverlay.classList.add('modal-hidden'));
+        modalOverlay.addEventListener('click', (event) => { if (event.target === modalOverlay) modalOverlay.classList.add('modal-hidden'); });
+
+        function main() {
+            manualLocationSection.classList.add('hidden');
+            statusMessage.textContent = 'Zjišťuji vaši polohu...';
+            parametersGrid.innerHTML = '';
+            probabilityCircle.style.backgroundColor = 'hsl(0, 0%, 85%)';
+
+            getUserLocation()
+                .then(pos => {
+                    statusMessage.textContent = 'Načítám data o počasí a lokalitě...';
+                    return getWeatherDataAndLocation(pos.coords.latitude, pos.coords.longitude);
+                })
+                .then(data => updateUI(data.probability, data.weather, data.location))
+                .catch(error => {
+                    console.log(`Handled error: ${error.message}`); // Log for debugging, not as critical error
+                    if (error.message.includes('polohy')) { // Known location error
+                        statusMessage.textContent = "Detekce polohy selhala.";
+                        manualLocationMessage.textContent = `${error.message}. Zadejte polohu ručně:`;
+                        manualLocationSection.classList.remove('hidden');
+                    } else { // Other errors (API, network, etc.)
+                        statusMessage.textContent = `Chyba: ${error.message}`;
+                    }
+                });
+        }
+
+        async function handleManualSearch() {
+            const city = cityInput.value.trim();
+            if (!city) {
+                manualLocationMessage.textContent = 'Zadejte prosím název města.';
+                return;
+            }
+            statusMessage.textContent = `Hledám polohu pro "${city}"...`;
+            parametersGrid.innerHTML = '';
+            probabilityCircle.style.backgroundColor = 'hsl(0, 0%, 85%)';
+            manualLocationMessage.textContent = 'Hledám...';
+
+            try {
+                const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1&accept-language=cs`;
+                const geoResponse = await fetch(geoUrl);
+                if (!geoResponse.ok) throw new Error('Služba pro geokódování neodpovídá.');
+                const geoData = await geoResponse.json();
+                if (geoData.length === 0) throw new Error(`Město "${city}" nebylo nalezeno.`);
+                
+                const { lat, lon, display_name } = geoData[0];
+                const locationName = display_name.split(',')[0];
+                const data = await getWeatherDataAndLocation(lat, lon, locationName);
+                updateUI(data.probability, data.weather, data.location);
+                manualLocationSection.classList.add('hidden');
+            } catch (error) {
+                console.error("Chyba při manuálním hledání:", error);
+                statusMessage.textContent = 'Manuální hledání selhalo.';
+                manualLocationMessage.innerHTML = `<span class="text-red-500">${error.message}</span>`;
+            }
+        }
+        
+        function getUserLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error('Chyba polohy: Geolokace není podporována.'));
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(resolve, (error) => {
+                    let message = 'Neznámá chyba polohy.';
+                    if (error.code === 1) message = 'Chyba polohy: Přístup byl zamítnut.';
+                    if (error.code === 2) message = 'Chyba polohy: Informace nejsou dostupné.';
+                    if (error.code === 3) message = 'Chyba polohy: Vypršel čas.';
+                    reject(new Error(message));
+                }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+            });
+        }
+
+        async function getWeatherDataAndLocation(lat, lon, predefinedLocation = null) {
+            const weatherApiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=precipitation_sum&past_days=1&forecast_days=1`;
+            const weatherResponse = await fetch(weatherApiUrl);
+            if (!weatherResponse.ok) throw new Error('Chyba při načítání počasí.');
+            const weatherData = await weatherResponse.json();
+            
+            let locationName = predefinedLocation;
+            if (!locationName) {
+                const locationApiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=cs`;
+                const locationResponse = await fetch(locationApiUrl);
+                locationName = locationResponse.ok ? (await locationResponse.json()).address.city || (await locationResponse.json()).address.town || (await locationResponse.json()).address.village || 'Neznámá' : 'Neznámá';
+            }
+            
+            const weather = {
+                temp: weatherData.current.temperature_2m,
+                humidity: weatherData.current.relative_humidity_2m,
+                wind: weatherData.current.wind_speed_10m,
+                rain_today: weatherData.current.precipitation,
+                rain_yesterday: weatherData.daily.precipitation_sum[0]
+            };
+
+            const probability = calculateSwarmProbability(weather);
+            
+            return { weather, location: locationName, probability };
+        }
+
+        function calculateSwarmProbability(weather) {
+            const scores = { month: 0, temp: 0, humidity: 0, wind: 0, rain: 0 };
+            const currentMonth = new Date().getMonth();
+            if (currentMonth >= 5 && currentMonth <= 7) scores.month = 1.0;
+            else if (currentMonth === 4 || currentMonth === 8) scores.month = 0.5;
+            if (weather.temp >= 23 && weather.temp <= 30) scores.temp = 1.0;
+            else if (weather.temp > 19) scores.temp = 0.7;
+            else scores.temp = 0.1;
+            if (weather.humidity > 65) scores.humidity = 1.0;
+            else if (weather.humidity > 55) scores.humidity = 0.4;
+            else scores.humidity = 0.1;
+            if (weather.wind < 10) scores.wind = 1.0;
+            else if (weather.wind < 15) scores.wind = 0.5;
+            if (weather.rain_yesterday > 0.5 && weather.rain_today < 0.2) scores.rain = 1.0;
+            else if (weather.rain_yesterday > 0.1 && weather.rain_today < 0.5) scores.rain = 0.7;
+            else scores.rain = 0.2;
+            if (scores.month === 0) return 0;
+            return ((scores.temp * 0.35) + (scores.humidity * 0.30) + (scores.rain * 0.20) + (scores.wind * 0.15)) * scores.month;
+        }
+
+        function updateUI(probability, weather, location) {
+            probabilityCircle.style.backgroundColor = `hsl(${probability * 120}, 85%, 55%)`;
+            let probText;
+            if (probability > 0.8) probText = "Extrémně vysoká šance";
+            else if (probability > 0.6) probText = "Vysoká šance";
+            else if (probability > 0.4) probText = "Možné";
+            else if (probability > 0.2) probText = "Nízká šance";
+            else probText = "Velmi nízká šance";
+            statusMessage.textContent = `${probText} (${Math.round(probability * 100)}%)`;
+            const currentMonth = new Date().getMonth();
+            const parameters = [
+                { key: 'location', label: 'Lokalita', value: location, rawValue: location },
+                { key: 'month', label: 'Měsíc', value: new Date().toLocaleString('cs-CZ', { month: 'long' }), rawValue: currentMonth },
+                { key: 'temp', label: 'Teplota', value: `${weather.temp.toFixed(1)} °C`, rawValue: weather.temp },
+                { key: 'humidity', label: 'Vlhkost', value: `${weather.humidity.toFixed(0)} %`, rawValue: weather.humidity },
+                { key: 'wind', label: 'Vítr', value: `${weather.wind.toFixed(1)} km/h`, rawValue: weather.wind },
+                { key: 'rain', label: 'Déšť včera', value: `${weather.rain_yesterday.toFixed(1)} mm`, rawValue: weather.rain_yesterday }
+            ];
+            parametersGrid.innerHTML = parameters.map(p => createParameterTile(p.label, p.value, getStatus(p.key, p.rawValue), p.key)).join('');
+        }
+
+        function createParameterTile(label, value, status, key) {
+            return `
+                <div class="bg-gray-100 p-3 rounded-lg shadow-sm parameter-tile" data-param="${key}">
+                    <div class="text-xs text-gray-500 pointer-events-none">${label}</div>
+                    <div class="text-lg font-bold text-gray-900 pointer-events-none">${value}</div>
+                    <div class="text-xs font-medium ${status.color} pointer-events-none">${status.text}</div>
+                </div>`;
+        }
+        
+        function getStatus(param, value) {
+            const statuses = {
+                month: [ { check: v => v >= 5 && v <= 7, text: 'Hlavní sezóna', color: 'text-green-600' }, { check: v => v === 4 || v === 8, text: 'Okraj sezóny', color: 'text-yellow-600' }, { check: v => true, text: 'Mimo sezónu', color: 'text-red-600' } ],
+                temp: [ { check: v => v >= 23 && v <= 30, text: 'Ideální', color: 'text-green-600' }, { check: v => v > 19, text: 'Dobrá', color: 'text-yellow-600' }, { check: v => true, text: 'Nevhodná', color: 'text-red-600' } ],
+                humidity: [ { check: v => v > 65, text: 'Ideální', color: 'text-green-600' }, { check: v => v > 55, text: 'Dobrá', color: 'text-yellow-600' }, { check: v => true, text: 'Nízká', color: 'text-red-600' } ],
+                wind: [ { check: v => v < 10, text: 'Ideální', color: 'text-green-600' }, { check: v => v < 15, text: 'Mírný', color: 'text-yellow-600' }, { check: v => true, text: 'Silný', color: 'text-red-600' } ],
+                rain: [ { check: v => v > 0.5, text: 'Ideální', color: 'text-green-600' }, { check: v => v > 0.1, text: 'OK', color: 'text-yellow-600' }, { check: v => true, text: 'Sucho', color: 'text-red-600' } ],
+                location: [ { check: v => true, text: 'Aktuální', color: 'text-blue-500' } ]
+            };
+            return statuses[param].find(s => s.check(value));
+        }
+    </script>
+
+</body>
+</html>
