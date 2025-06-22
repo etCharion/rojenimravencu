@@ -58,24 +58,29 @@
                  onerror="this.onerror=null; this.src='https://placehold.co/256x256/ffffff/cccccc?text=Obr%C3%A1zek+nelze+nahr%C3%A1t';">
         </div>
 
-        <!-- Parametry -->
-        <div id="parameters-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-            <!-- Buňky parametrů se naplní pomocí JS -->
+        <!-- Parametry / Manuální hledání - kontejner pro přepínání -->
+        <div id="content-container">
+            <div id="parameters-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                <!-- Buňky parametrů se naplní pomocí JS -->
+            </div>
+            
+            <div id="manual-location" class="w-full text-center mt-2 hidden">
+                 <p class="text-sm text-gray-600 mb-2">Zadejte nové místo pro analýzu:</p>
+                <div class="relative">
+                    <input type="text" id="city-input" placeholder="Např. Frýdlant nad Ostravicí" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800" autocomplete="off">
+                    <div id="suggestions-box" class="absolute left-0 right-0 bg-white border border-gray-300 rounded-b-lg mt-1 text-left z-10 hidden">
+                        <!-- Našeptávač se naplní pomocí JS -->
+                    </div>
+                </div>
+                 <button id="cancel-search-button" class="mt-4 px-5 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300">Zrušit</button>
+            </div>
         </div>
+
          <button id="refresh-button" class="mt-8 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition-colors">
-            Aktualizovat
+            Použít moji polohu
         </button>
     </div>
     
-    <!-- Formulář pro ruční zadání polohy -->
-    <div id="manual-location" class="w-full max-w-md text-center mt-6 hidden">
-        <p id="manual-location-message" class="text-sm text-gray-600 mb-2">Zpráva o poloze</p>
-        <div class="flex gap-2">
-            <input type="text" id="city-input" placeholder="Např. Frýdlant nad Ostravicí" class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800">
-            <button id="manual-search-button" class="px-5 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700">Hledat</button>
-        </div>
-    </div>
-
     <!-- Modální okno pro vysvětlení parametrů -->
     <div id="modal-overlay" class="modal-hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
         <div id="modal-content" class="bg-white rounded-lg shadow-2xl p-6 w-full max-w-sm">
@@ -97,61 +102,75 @@
         const statusMessage = document.getElementById('status-message');
         const refreshButton = document.getElementById('refresh-button');
         const manualLocationSection = document.getElementById('manual-location');
-        const manualLocationMessage = document.getElementById('manual-location-message');
-        const manualSearchButton = document.getElementById('manual-search-button');
         const cityInput = document.getElementById('city-input');
+        const suggestionsBox = document.getElementById('suggestions-box');
+        const cancelSearchButton = document.getElementById('cancel-search-button');
         const modalOverlay = document.getElementById('modal-overlay');
         const modalTitle = document.getElementById('modal-title');
         const modalBody = document.getElementById('modal-body');
         const modalClose = document.getElementById('modal-close');
+        let debounceTimer;
 
         // Data pro modální okna
         const explanations = {
             location: {
                 title: 'Lokalita',
-                text: `<p><strong>Důležitost:</strong> Přesná poloha je klíčová pro získání relevantních a místních dat o počasí.</p><p><strong>Ideál:</strong> Aplikace používá data pro zobrazené město k co nejpřesnější předpovědi.</p>`
+                text: `<p><strong>Důležitost:</strong> Přesná poloha je klíčová pro získání relevantních a místních dat o počasí. Kliknutím na tuto dlaždici můžete změnit lokalitu.</p><p><strong>Ideál:</strong> Aplikace používá data pro zobrazené město k co nejpřesnější předpovědi.</p>`
             },
-            month: {
-                title: 'Měsíc',
-                text: `<p><strong>Důležitost:</strong> Rojení mravenců <em>Lasius niger</em> (Mravenec obecný) je silně vázáno na roční období. Děje se tak pouze v teplých letních měsících.</p><p><strong>Ideál:</strong> Hlavní sezóna je v červenci a srpnu. Okrajově se rojení může objevit i na konci června a začátkem září.</p>`
-            },
-            temp: {
-                title: 'Teplota',
-                text: `<p><strong>Důležitost:</strong> Mravenci jsou studenokrevní, takže pro let potřebují dostatek tepla z okolí, ale ne přílišné horko.</p><p><strong>Ideál:</strong> Optimální teplota pro vzlet se pohybuje mezi <strong>23°C a 30°C</strong>.</p>`
-            },
-            humidity: {
-                title: 'Vlhkost',
-                text: `<p><strong>Důležitost:</strong> Vyšší vlhkost vzduchu chrání jejich křídla před vyschnutím. Po dešti je navíc půda měkčí, což usnadňuje královnám vyhrabání nového hnízda.</p><p><strong>Ideál:</strong> Relativní vlhkost vzduchu nad <strong>65%</strong> je optimální.</p>`
-            },
-            wind: {
-                title: 'Vítr',
-                text: `<p><strong>Důležitost:</strong> Silný vítr by mravencům znemožnil kontrolu letu. Preferují proto klidné, bezvětrné dny.</p><p><strong>Ideál:</strong> Bezvětří nebo jen slabý vítr do <strong>10 km/h</strong>.</p>`
-            },
-            rain: {
-                title: 'Déšť včera',
-                text: `<p><strong>Důležitost:</strong> Déšť v předchozím dni je častým spouštěčem. Změkčí půdu, což je pro královny životně důležité pro rychlé založení hnízda.</p><p><strong>Ideál:</strong> Alespoň <strong>0.5 mm</strong> srážek den předem, přičemž den rojení by měl být suchý.</p>`
-            }
+            month: { title: 'Měsíc', text: `<p><strong>Důležitost:</strong> Rojení mravenců <em>Lasius niger</em> (Mravenec obecný) je silně vázáno na roční období. Děje se tak pouze v teplých letních měsících.</p><p><strong>Ideál:</strong> Hlavní sezóna je v červenci a srpnu. Okrajově se rojení může objevit i na konci června a začátkem září.</p>`},
+            temp: { title: 'Teplota', text: `<p><strong>Důležitost:</strong> Mravenci jsou studenokrevní, takže pro let potřebují dostatek tepla z okolí, ale ne přílišné horko.</p><p><strong>Ideál:</strong> Optimální teplota pro vzlet se pohybuje mezi <strong>23°C a 30°C</strong>.</p>` },
+            humidity: { title: 'Vlhkost', text: `<p><strong>Důležitost:</strong> Vyšší vlhkost vzduchu chrání jejich křídla před vyschnutím. Po dešti je navíc půda měkčí, což usnadňuje královnám vyhrabání nového hnízda.</p><p><strong>Ideál:</strong> Relativní vlhkost vzduchu nad <strong>65%</strong> je optimální.</p>` },
+            wind: { title: 'Vítr', text: `<p><strong>Důležitost:</strong> Silný vítr by mravencům znemožnil kontrolu letu. Preferují proto klidné, bezvětrné dny.</p><p><strong>Ideál:</strong> Bezvětří nebo jen slabý vítr do <strong>10 km/h</strong>.</p>` },
+            rain: { title: 'Déšť včera', text: `<p><strong>Důležitost:</strong> Déšť v předchozím dni je častým spouštěčem. Změkčí půdu, což je pro královny životně důležité pro rychlé založení hnízda.</p><p><strong>Ideál:</strong> Alespoň <strong>0.5 mm</strong> srážek den předem, přičemž den rojení by měl být suchý.</p>`}
         };
 
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', main);
         refreshButton.addEventListener('click', main);
-        manualSearchButton.addEventListener('click', handleManualSearch);
-        cityInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') handleManualSearch(); });
+        cityInput.addEventListener('input', (event) => {
+            clearTimeout(debounceTimer);
+            suggestionsBox.classList.add('hidden');
+            const query = event.target.value;
+            if (query.length < 3) return;
+            debounceTimer = setTimeout(() => {
+                fetchSuggestions(query);
+            }, 300);
+        });
+        
         parametersGrid.addEventListener('click', (event) => {
             const tile = event.target.closest('.parameter-tile');
-            if (tile?.dataset.param && explanations[tile.dataset.param]) {
-                const { title, text } = explanations[tile.dataset.param];
+            if (!tile?.dataset.param) return;
+            
+            const paramKey = tile.dataset.param;
+            if (paramKey === 'location') {
+                showSearchView();
+            } else if (explanations[paramKey]) {
+                const { title, text } = explanations[paramKey];
                 modalTitle.textContent = title;
                 modalBody.innerHTML = text;
                 modalOverlay.classList.remove('modal-hidden');
             }
         });
+
+        cancelSearchButton.addEventListener('click', showParametersView);
         modalClose.addEventListener('click', () => modalOverlay.classList.add('modal-hidden'));
         modalOverlay.addEventListener('click', (event) => { if (event.target === modalOverlay) modalOverlay.classList.add('modal-hidden'); });
+        
+        function showSearchView() {
+            parametersGrid.classList.add('hidden');
+            manualLocationSection.classList.remove('hidden');
+            cityInput.focus();
+        }
+
+        function showParametersView() {
+            manualLocationSection.classList.add('hidden');
+            parametersGrid.classList.remove('hidden');
+            suggestionsBox.classList.add('hidden');
+            cityInput.value = '';
+        }
 
         function main() {
-            manualLocationSection.classList.add('hidden');
+            showParametersView();
             statusMessage.textContent = 'Zjišťuji vaši polohu...';
             parametersGrid.innerHTML = '';
             probabilityCircle.style.backgroundColor = 'hsl(0, 0%, 85%)';
@@ -163,58 +182,67 @@
                 })
                 .then(data => updateUI(data.probability, data.weather, data.location))
                 .catch(error => {
-                    console.log(`Handled error: ${error.message}`); // Log for debugging, not as critical error
-                    if (error.message.includes('polohy')) { // Known location error
-                        statusMessage.textContent = "Detekce polohy selhala.";
-                        manualLocationMessage.textContent = `${error.message}. Zadejte polohu ručně:`;
-                        manualLocationSection.classList.remove('hidden');
-                    } else { // Other errors (API, network, etc.)
-                        statusMessage.textContent = `Chyba: ${error.message}`;
-                    }
+                    console.log(`Handled error: ${error.message}`);
+                    statusMessage.innerHTML = `<span class="text-red-500">${error.message}</span>`;
+                    showSearchView();
                 });
         }
+        
+        async function fetchSuggestions(query) {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=cs&featuretype=city,town,village`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) return;
+                const data = await response.json();
+                displaySuggestions(data);
+            } catch (error) {
+                console.error("Chyba při načítání návrhů:", error);
+            }
+        }
 
-        async function handleManualSearch() {
-            const city = cityInput.value.trim();
-            if (!city) {
-                manualLocationMessage.textContent = 'Zadejte prosím název města.';
+        function displaySuggestions(suggestions) {
+            if (suggestions.length === 0) {
+                suggestionsBox.classList.add('hidden');
                 return;
             }
-            statusMessage.textContent = `Hledám polohu pro "${city}"...`;
-            parametersGrid.innerHTML = '';
-            probabilityCircle.style.backgroundColor = 'hsl(0, 0%, 85%)';
-            manualLocationMessage.textContent = 'Hledám...';
+            suggestionsBox.innerHTML = '';
+            suggestions.forEach(suggestion => {
+                const div = document.createElement('div');
+                div.textContent = suggestion.display_name;
+                div.className = 'p-2 hover:bg-gray-100 cursor-pointer';
+                div.dataset.lat = suggestion.lat;
+                div.dataset.lon = suggestion.lon;
+                div.dataset.name = suggestion.display_name.split(',')[0];
+                div.addEventListener('click', () => {
+                    selectSuggestion(div.dataset.lat, div.dataset.lon, div.dataset.name);
+                });
+                suggestionsBox.appendChild(div);
+            });
+            suggestionsBox.classList.remove('hidden');
+        }
 
+        async function selectSuggestion(lat, lon, name) {
+            statusMessage.textContent = `Načítám data pro ${name}...`;
+            showParametersView();
             try {
-                const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1&accept-language=cs`;
-                const geoResponse = await fetch(geoUrl);
-                if (!geoResponse.ok) throw new Error('Služba pro geokódování neodpovídá.');
-                const geoData = await geoResponse.json();
-                if (geoData.length === 0) throw new Error(`Město "${city}" nebylo nalezeno.`);
-                
-                const { lat, lon, display_name } = geoData[0];
-                const locationName = display_name.split(',')[0];
-                const data = await getWeatherDataAndLocation(lat, lon, locationName);
+                const data = await getWeatherDataAndLocation(lat, lon, name);
                 updateUI(data.probability, data.weather, data.location);
-                manualLocationSection.classList.add('hidden');
             } catch (error) {
-                console.error("Chyba při manuálním hledání:", error);
-                statusMessage.textContent = 'Manuální hledání selhalo.';
-                manualLocationMessage.innerHTML = `<span class="text-red-500">${error.message}</span>`;
+                statusMessage.innerHTML = `<span class="text-red-500">${error.message}</span>`;
             }
         }
         
         function getUserLocation() {
             return new Promise((resolve, reject) => {
                 if (!navigator.geolocation) {
-                    reject(new Error('Chyba polohy: Geolokace není podporována.'));
+                    reject(new Error('Geolokace není podporována.'));
                     return;
                 }
                 navigator.geolocation.getCurrentPosition(resolve, (error) => {
                     let message = 'Neznámá chyba polohy.';
-                    if (error.code === 1) message = 'Chyba polohy: Přístup byl zamítnut.';
-                    if (error.code === 2) message = 'Chyba polohy: Informace nejsou dostupné.';
-                    if (error.code === 3) message = 'Chyba polohy: Vypršel čas.';
+                    if (error.code === 1) message = 'Přístup k poloze byl zamítnut.';
+                    if (error.code === 2) message = 'Informace o poloze nejsou dostupné.';
+                    if (error.code === 3) message = 'Vypršel čas pro zjištění polohy.';
                     reject(new Error(message));
                 }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
             });
@@ -231,8 +259,8 @@
                 const locationApiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=cs`;
                 const locationResponse = await fetch(locationApiUrl);
                 if (locationResponse.ok) {
-                    const locationData = await locationResponse.json(); // Call .json() only ONCE
-                    locationName = locationData.address.city || locationData.address.town || locationData.address.village || 'Neznámá';
+                    const data = await locationResponse.json();
+                    locationName = data.address.city || data.address.town || data.address.village || 'Neznámá';
                 } else {
                     locationName = 'Neznámá lokalita';
                 }
@@ -247,26 +275,17 @@
             };
 
             const probability = calculateSwarmProbability(weather);
-            
             return { weather, location: locationName, probability };
         }
 
         function calculateSwarmProbability(weather) {
             const scores = { month: 0, temp: 0, humidity: 0, wind: 0, rain: 0 };
             const currentMonth = new Date().getMonth();
-            if (currentMonth >= 5 && currentMonth <= 7) scores.month = 1.0;
-            else if (currentMonth === 4 || currentMonth === 8) scores.month = 0.5;
-            if (weather.temp >= 23 && weather.temp <= 30) scores.temp = 1.0;
-            else if (weather.temp > 19) scores.temp = 0.7;
-            else scores.temp = 0.1;
-            if (weather.humidity > 65) scores.humidity = 1.0;
-            else if (weather.humidity > 55) scores.humidity = 0.4;
-            else scores.humidity = 0.1;
-            if (weather.wind < 10) scores.wind = 1.0;
-            else if (weather.wind < 15) scores.wind = 0.5;
-            if (weather.rain_yesterday > 0.5 && weather.rain_today < 0.2) scores.rain = 1.0;
-            else if (weather.rain_yesterday > 0.1 && weather.rain_today < 0.5) scores.rain = 0.7;
-            else scores.rain = 0.2;
+            if (currentMonth >= 5 && currentMonth <= 7) scores.month = 1.0; else if (currentMonth === 4 || currentMonth === 8) scores.month = 0.5;
+            if (weather.temp >= 23 && weather.temp <= 30) scores.temp = 1.0; else if (weather.temp > 19) scores.temp = 0.7; else scores.temp = 0.1;
+            if (weather.humidity > 65) scores.humidity = 1.0; else if (weather.humidity > 55) scores.humidity = 0.4; else scores.humidity = 0.1;
+            if (weather.wind < 10) scores.wind = 1.0; else if (weather.wind < 15) scores.wind = 0.5;
+            if (weather.rain_yesterday > 0.5 && weather.rain_today < 0.2) scores.rain = 1.0; else if (weather.rain_yesterday > 0.1 && weather.rain_today < 0.5) scores.rain = 0.7; else scores.rain = 0.2;
             if (scores.month === 0) return 0;
             return ((scores.temp * 0.35) + (scores.humidity * 0.30) + (scores.rain * 0.20) + (scores.wind * 0.15)) * scores.month;
         }
@@ -308,7 +327,7 @@
                 humidity: [ { check: v => v > 65, text: 'Ideální', color: 'text-green-600' }, { check: v => v > 55, text: 'Dobrá', color: 'text-yellow-600' }, { check: v => true, text: 'Nízká', color: 'text-red-600' } ],
                 wind: [ { check: v => v < 10, text: 'Ideální', color: 'text-green-600' }, { check: v => v < 15, text: 'Mírný', color: 'text-yellow-600' }, { check: v => true, text: 'Silný', color: 'text-red-600' } ],
                 rain: [ { check: v => v > 0.5, text: 'Ideální', color: 'text-green-600' }, { check: v => v > 0.1, text: 'OK', color: 'text-yellow-600' }, { check: v => true, text: 'Sucho', color: 'text-red-600' } ],
-                location: [ { check: v => true, text: 'Aktuální', color: 'text-blue-500' } ]
+                location: [ { check: v => true, text: 'Změnit polohu', color: 'text-blue-500' } ]
             };
             return statuses[param].find(s => s.check(value));
         }
