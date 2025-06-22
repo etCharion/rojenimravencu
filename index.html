@@ -230,7 +230,12 @@
             if (!locationName) {
                 const locationApiUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=cs`;
                 const locationResponse = await fetch(locationApiUrl);
-                locationName = locationResponse.ok ? (await locationResponse.json()).address.city || (await locationResponse.json()).address.town || (await locationResponse.json()).address.village || 'Neznámá' : 'Neznámá';
+                if (locationResponse.ok) {
+                    const locationData = await locationResponse.json(); // Call .json() only ONCE
+                    locationName = locationData.address.city || locationData.address.town || locationData.address.village || 'Neznámá';
+                } else {
+                    locationName = 'Neznámá lokalita';
+                }
             }
             
             const weather = {
